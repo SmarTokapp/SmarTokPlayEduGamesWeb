@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SmarTokPlay: EduGames — Free Educational Browser Games</title>
+  <meta name="description" content="Play 100+ free educational browser games on SmarTokPlay: EduGames — quizzes, logic puzzles, science, history, geography and more. No downloads, play instantly.">
+  <meta name="robots" content="index, follow">
+  <meta name="theme-color" content="#000000">
+  <link rel="canonical" href="https://edugames.smartok.app/">
+
+  <!-- Open Graph / social preview -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="SmarTokPlay: EduGames">
+  <meta property="og:title" content="SmarTokPlay: EduGames — Free Educational Browser Games">
+  <meta property="og:description" content="Play 100+ free educational browser games — quizzes, logic puzzles, science, history and more. No downloads, play instantly.">
+  <meta property="og:url" content="https://edugames.smartok.app/">
+  <meta property="og:image" content="https://edugames.smartok.app/assets/logo.png">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="SmarTokPlay: EduGames — Free Educational Browser Games">
+  <meta name="twitter:description" content="Play 100+ free educational browser games — quizzes, logic puzzles, science, history and more.">
+  <meta name="twitter:image" content="https://edugames.smartok.app/assets/logo.png">
+
+  <link rel="icon" type="image/png" href="/assets/favicon.png">
+  <link rel="apple-touch-icon" href="/assets/favicon.png">
+  <link rel="stylesheet" href="/styles.css?v=1">
+</head>
+<body>
+  <!-- ═══ Header ═══ -->
+  <header class="topbar">
+    <button id="menu-btn" class="icon-btn" data-i18n-aria="menu_title" aria-label="Menu">☰</button>
+    <div class="brand" id="brand-home">
+      <img src="/assets/logo.png" alt="SmarTokPlay logo" class="brand-logo">
+      <div class="brand-text">
+        <span class="brand-name">SmarTokPlay</span>
+        <span class="brand-sub" data-i18n="brand_sub">Free Educational Games</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <span class="store-badge" data-i18n="store_badge">Coming soon on Google Play</span>
+      <select id="lang-select" class="lang-select" data-i18n-aria="language" aria-label="Language"></select>
+    </div>
+  </header>
+
+  <!-- ═══ Drawer ═══ -->
+  <div id="drawer-overlay" class="drawer-overlay"></div>
+  <nav id="drawer" class="drawer">
+    <div class="drawer-head">
+      <img src="/assets/logo.png" alt="" class="drawer-logo">
+      <span class="drawer-title" data-i18n="menu_title">Menu</span>
+      <button id="drawer-close" class="icon-btn" aria-label="Close">✕</button>
+    </div>
+    <button class="drawer-item active" id="nav-all" data-view="all">🎮 <span data-i18n="menu_all">All Games</span></button>
+    <button class="drawer-item" id="nav-favorites" data-view="favorites">★ <span data-i18n="menu_favorites">Favorites</span></button>
+    <div class="drawer-section" data-i18n="menu_categories">Categories</div>
+    <div id="drawer-categories" class="drawer-categories"></div>
+  </nav>
+
+  <!-- ═══ Search ═══ -->
+  <div class="searchbar">
+    <span class="search-icon">🔍</span>
+    <input type="text" id="search-input" data-i18n-ph="search_ph" placeholder="Search games..." autocomplete="off">
+    <button id="search-clear" class="icon-btn search-clear" aria-label="Clear">✕</button>
+  </div>
+
+  <!-- ═══ Game grid ═══ -->
+  <main class="content">
+    <div id="games-grid" class="games-grid">
+      <div id="loading" class="loading" data-i18n="loading">Loading games...</div>
+    </div>
+    <div id="empty-state" class="empty-state" style="display:none">
+      <div class="empty-icon">☆</div>
+      <div class="empty-title" data-i18n="fav_empty_title">No favorites yet</div>
+      <div class="empty-sub" data-i18n="fav_empty_sub">Tap the star on any game to save it here.</div>
+    </div>
+  </main>
+
+  <!-- ═══ Footer ═══ -->
+  <footer class="footer">
+    <div class="footer-badge" data-i18n="store_badge">Coming soon on Google Play</div>
+    <div class="footer-text" data-i18n="footer_text">© 2025 SmarTokPlay: EduGames — Free educational browser games.</div>
+  </footer>
+
+  <!-- ═══ Full-viewport game player ═══ -->
+  <div id="player-overlay" class="player-overlay" style="display:none">
+    <div class="player-bar">
+      <button id="player-back" class="player-btn">← <span data-i18n="back_to_hub">Back to Hub</span></button>
+      <div id="player-title" class="player-title"></div>
+      <div class="player-actions">
+        <button id="player-fav" class="player-btn" aria-label="Favorite">☆</button>
+        <button id="player-fs" class="player-btn" data-i18n-aria="fullscreen" aria-label="Fullscreen">⛶</button>
+      </div>
+    </div>
+    <iframe id="player-frame" class="player-frame" allow="autoplay; fullscreen; gamepad; keyboard-map" allowfullscreen></iframe>
+  </div>
+
+  <script src="/i18n.js?v=1"></script>
+  <script src="/app.js?v=1"></script>
+</body>
+</html>
