@@ -79,7 +79,14 @@ body { display: flex; flex-direction: column; min-height: 100vh; }
 .drawer-item-danger { color: var(--pink); font-size: 0.88rem; }
 .drawer-section { margin: 16px 12px 6px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
 .drawer-section-toggle { color: var(--muted); font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; padding: 8px 12px; }
-.drawer-categories { max-height: 42vh; overflow-y: auto; }
+/* Scrollable category list — scrollbar hidden in all engines while
+   overflow-y: auto keeps wheel/touch scrolling fully functional. */
+.drawer-categories {
+  max-height: 42vh; overflow-y: auto;
+  scrollbar-width: none;           /* Firefox */
+  -ms-overflow-style: none;        /* legacy Edge / IE */
+}
+.drawer-categories::-webkit-scrollbar { display: none; } /* Chrome, Safari, Edge */
 .drawer-categories.collapsed { display: none; }
 .drawer-categories .drawer-item { padding: 8px 12px; font-size: 0.85rem; color: #ccc; }
 .drawer-divider { height: 1px; background: var(--surface2); margin: 10px 12px; }
