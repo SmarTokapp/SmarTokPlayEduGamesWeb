@@ -196,7 +196,7 @@ async function loadCatalog() {
     const res = await fetch(`${GAMES_MANIFEST_URL}?t=${Date.now()}`);
     const data = await res.json();
     if (Array.isArray(data) && data.length > 0) {
-      games = data.filter(g => g && g.id && g.title && g.url);
+      games = shuffleArray(data.filter(g => g && g.id && g.title && g.url));
       return;
     }
   } catch (e) {
@@ -204,10 +204,30 @@ async function loadCatalog() {
   }
   // Bundled fallback — an up-to-date copy of the same manifest.
   const res = await fetch(`games.json?t=${Date.now()}`);
-  games = (await res.json()).filter(g => g && g.id && g.title && g.url);
+  games = shuffleArray((await res.json()).filter(g => g && g.id && g.title && g.url));
 }
 
 /* ═══ Rendering ═══ */
+// Unbiased Fisher-Yates shuffle — copies the input so the catalog array
+// is replaced, not mutated in place.
+function shuffleArray(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// Re-shuffle the catalog and redraw. Only invoked by the resume/Home
+// triggers — never by search input, category clicks, or star toggles —
+// so the shuffled order stays stable while the user browses.
+function reshuffleGames() {
+  if (!games.length) return;
+  games = shuffleArray(games);
+  renderGrid();
+}
+
 function visibleGames() {
   const q = document.getElementById('search-input').value.trim().toLowerCase();
   let list = games;
@@ -286,6 +306,8 @@ function buildCategories() {
 }
 
 function setView(view, el) {
+  // Returning to Home/All Games always deals a fresh random order.
+  if (view === 'all' && games.length) games = shuffleArray(games);
   currentView = view;
   document.querySelectorAll('.drawer-item').forEach(b => b.classList.remove('active'));
   if (el) el.classList.add('active');
@@ -326,6 +348,8 @@ function closePlayer() {
   document.body.style.overflow = '';
   activeGame = null;
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  // Returning to the catalog from the player deals a fresh order.
+  reshuffleGames();
 }
 
 function toggleFullscreen() {
@@ -582,6 +606,15 @@ function init() {
     if (e.key !== 'Escape') return;
     if (activeGame) { closePlayer(); return; }
     document.querySelectorAll('.modal-overlay').forEach(ov => { ov.style.display = 'none'; });
+  });
+
+  // Fresh order when the tab becomes visible again or is restored from
+  // the bfcache after navigating away and back.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') reshuffleGames();
+  });
+  window.addEventListener('pageshow', e => {
+    if (e.persisted) reshuffleGames();
   });
 
   // Session bootstrap: restore a saved SmarTok session, validate the
