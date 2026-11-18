@@ -17,6 +17,13 @@ let currentView = 'all';   // 'all' | 'favorites' | 'category:<name>'
 let currentLang = detectLang();
 let activeGame = null;     // game open in the player overlay
 
+/* ═══ Auth / session state (same contract as the Android app) ═══ */
+const API_BASE = 'https://smartok-backend.onrender.com';
+const TOKEN_KEY = 'userToken';
+const USER_KEY = 'userData';
+let user = null;                  // signed-in SmarTok user, or null (guest)
+let serverFavorites = new Set();  // favorites stored on the account
+
 /* ═══ Language ═══ */
 function detectLang() {
   const saved = localStorage.getItem(LANG_KEY);
@@ -37,6 +44,8 @@ function applyI18n() {
   document.querySelectorAll('[data-i18n-ph]').forEach(el => { el.placeholder = tr(el.dataset.i18nPh); });
   document.querySelectorAll('[data-i18n-aria]').forEach(el => { el.setAttribute('aria-label', tr(el.dataset.i18nAria)); });
   syncPlayerFavButton();
+  updateAuthUI();
+  renderProfileCard();
 }
 
 function buildLangSelect() {
@@ -70,14 +79,99 @@ function saveFavorites() {
   try { localStorage.setItem(FAV_KEY, JSON.stringify([...favorites])); } catch { /* quota — non-fatal */ }
 }
 
-function toggleFavorite(id) {
-  if (favorites.has(id)) favorites.delete(id);
-  else favorites.add(id);
+/* ─── Session helpers (mirrors SmarTokPlayEduGames/src/api.ts) ─── */
+function getToken() { return localStorage.getItem(TOKEN_KEY); }
+
+function saveSession(token, userData) {
+  try {
+    localStorage.setItem(TOKEN_KEY, token);
+    localStorage.setItem(USER_KEY, JSON.stringify(userData));
+  } catch { /* quota — non-fatal */ }
+}
+
+function clearSession() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+}
+
+function getCachedUser() {
+  try { return JSON.parse(localStorage.getItem(USER_KEY) || 'null'); } catch { return null; }
+}
+
+// fetch() with the Bearer token attached — same header the native app sends.
+function authFetch(endpoint, options = {}) {
+  const token = getToken();
+  return fetch(`${API_BASE}${endpoint}`, {
+    ...options,
+    headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` },
+  });
+}
+
+/* ─── Cloud favorites sync ─── */
+// Pulls the account's favorite list from the backend; null when logged out.
+async function fetchServerFavorites() {
+  try {
+    const res = await authFetch('/api/games/favorites');
+    const data = await res.json().catch(() => ({}));
+    if (!data.success) return new Set();
+    return new Set((data.favorites || []).map(f => String(f.game_id)));
+  } catch {
+    return null; // offline — caller keeps the local set
+  }
+}
+
+// After login: merge device-local stars into the account set, then adopt
+// the union so nothing the guest starred is lost.
+async function mergeFavoritesOnLogin() {
+  const remote = await fetchServerFavorites();
+  if (remote === null) return; // offline — retry on next launch
+  serverFavorites = remote;
+  const missing = [...favorites].filter(id => !remote.has(id));
+  favorites = new Set([...favorites, ...remote]);
+  serverFavorites = new Set(favorites);
+  saveFavorites(); // keep the device cache in sync too
+  // Push any guest-only stars up to the account.
+  for (const id of missing) {
+    try {
+      await authFetch('/api/games/favorites/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gameId: id }),
+      });
+    } catch { /* offline — next login retries */ }
+  }
+}
+
+async function toggleFavorite(id) {
+  const wasFav = favorites.has(id);
+  if (wasFav) favorites.delete(id); else favorites.add(id);
   saveFavorites();
   // Refresh star states in the grid and the player bar.
   document.querySelectorAll(`.card-star[data-game-id="${CSS.escape(id)}"]`).forEach(btn => syncStar(btn, id));
   syncPlayerFavButton();
   if (currentView === 'favorites') renderGrid();
+
+  // Signed-in users persist the toggle to their SmarTok account;
+  // a failed call rolls the optimistic update back.
+  if (user && getToken()) {
+    try {
+      const res = await authFetch('/api/games/favorites/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gameId: id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!data.success) throw new Error('toggle failed');
+      if (data.favorited) serverFavorites.add(id); else serverFavorites.delete(id);
+    } catch {
+      if (wasFav) favorites.add(id); else favorites.delete(id);
+      saveFavorites();
+      document.querySelectorAll(`.card-star[data-game-id="${CSS.escape(id)}"]`).forEach(btn => syncStar(btn, id));
+      syncPlayerFavButton();
+      if (currentView === 'favorites') renderGrid();
+      toast(tr('auth.errNetwork'));
+    }
+  }
 }
 
 function syncStar(btn, id) {
@@ -245,8 +339,186 @@ function toggleFullscreen() {
   }
 }
 
+/* ═══ Profile card, auth, legal & modals ═══ */
+
+// In-app legal documents — same content the Android app's LegalScreen shows.
+const LEGAL_CONTENT = {
+  privacy: {
+    titleKey: 'drawer.privacyPolicy',
+    sections: [
+      ['1. Information We Collect', 'SmarTok Play: EduGames collects your account information (name, email) when you register with a SmarTok account, plus your list of favorite games. Gameplay inside the in-app browser is hosted on games.smartok.app and does not collect personal data.'],
+      ['2. How We Use Information', 'Your data is used only to authenticate your session, keep your favorites synchronized across devices, and operate the service. We do not sell personal information to third parties.'],
+      ['3. Data Sharing', 'We do not share your personal data with third parties except the infrastructure providers needed to run the service (hosting, authentication). Legal requests are honored where required by law.'],
+      ['4. Data Retention & Deletion', 'You may delete your account at any time from the drawer menu ("Delete Account"). Deletion permanently removes your account, favorites, and personal data from our servers and cannot be undone.'],
+      ['5. Children', 'The games in this app are educational. Accounts require a verified email address. Parents may contact us to request deletion of a child\'s account data.'],
+      ['6. Contact', 'For privacy questions, contact the SmarTok team through the official support channels listed on smartok.app.'],
+    ],
+  },
+  terms: {
+    titleKey: 'drawer.terms',
+    sections: [
+      ['1. Acceptance of Terms', 'By using SmarTok Play: EduGames you agree to these Terms of Service. If you do not agree, do not use the app.'],
+      ['2. Accounts', 'You are responsible for keeping your login credentials confidential and for all activity under your account. Accounts created in the main SmarTok app can be used here directly.'],
+      ['3. Acceptable Use', 'You agree not to misuse the service: no reverse-engineering, no scraping, no unlawful activity, and no interference with the operation of the platform.'],
+      ['4. Content', 'The HTML5 games are provided "as is" for educational entertainment. All game content belongs to its respective owners within the SmarTok ecosystem.'],
+      ['5. Termination', 'We may suspend or terminate accounts that violate these terms. You may end these terms at any time by deleting your account from the drawer menu.'],
+      ['6. Limitation of Liability', 'To the maximum extent permitted by law, SmarTok is not liable for indirect, incidental, or consequential damages arising from the use of this app.'],
+    ],
+  },
+};
+
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.display = 'block';
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { el.style.display = 'none'; }, 3000);
+}
+
+function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+// Renders the pinned bottom profile card for guest vs signed-in states.
+function renderProfileCard() {
+  const card = document.getElementById('profile-card');
+  if (user) {
+    const avatar = user.avatar_url ||
+      `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || 'U')}&background=ff4c68&color=fff&size=128`;
+    card.innerHTML = `
+      <img class="profile-avatar" src="${escapeHtml(avatar)}" alt="" onerror="this.style.display='none'">
+      <div class="profile-text">
+        <div class="profile-name">${escapeHtml(user.name || '')}</div>
+        <div class="profile-sub">${escapeHtml(tr('drawer.signedInAs').replace('{name}', user.email || ''))}</div>
+      </div>`;
+  } else {
+    card.innerHTML = `
+      <div class="profile-guest-avatar">👤</div>
+      <div class="profile-text">
+        <div class="profile-name">${escapeHtml(tr('profile.guest'))}</div>
+        <div class="profile-sub">${escapeHtml(tr('profile.syncSub'))}</div>
+      </div>
+      <button class="profile-signin" id="profile-signin-btn">${escapeHtml(tr('auth.signInSmarTok'))}</button>`;
+    document.getElementById('profile-signin-btn').addEventListener('click', () => { closeDrawer(); openModal('auth-modal'); });
+  }
+}
+
+// Syncs drawer auth item + delete-account visibility with the session.
+function updateAuthUI() {
+  const loggedIn = !!user;
+  document.getElementById('nav-auth-label').textContent = tr(loggedIn ? 'drawer.signOut' : 'drawer.logIn');
+  document.getElementById('nav-auth-icon').textContent = loggedIn ? '←' : '→';
+  document.getElementById('nav-delete').style.display = loggedIn ? 'flex' : 'none';
+}
+
+/* ─── Sign-in modal ─── */
+async function submitLogin() {
+  const email = document.getElementById('auth-email').value.trim().toLowerCase();
+  const password = document.getElementById('auth-password').value;
+  const errEl = document.getElementById('auth-error');
+  const btn = document.getElementById('auth-submit');
+  errEl.style.display = 'none';
+  if (!email || !password) {
+    errEl.textContent = tr('auth.errEmailPassword');
+    errEl.style.display = 'block';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = tr('common.loading');
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.token) {
+      saveSession(data.token, data.user);
+      user = data.user;
+      closeModal('auth-modal');
+      updateAuthUI();
+      renderProfileCard();
+      toast(tr('drawer.signedInAs').replace('{name}', user.email || user.name || ''));
+      await mergeFavoritesOnLogin();
+      renderGrid();
+    } else {
+      errEl.textContent = data.requiresVerification ? tr('auth.errVerify') : (data.error || tr('auth.errLogin'));
+      errEl.style.display = 'block';
+    }
+  } catch {
+    errEl.textContent = tr('auth.errNetwork');
+    errEl.style.display = 'block';
+  }
+  btn.disabled = false;
+  btn.textContent = tr('auth.login');
+}
+
+/* ─── Log out / delete account ─── */
+async function doLogout() {
+  clearSession();
+  user = null;
+  serverFavorites = new Set();
+  favorites = loadFavorites(); // back to the device-local guest list
+  updateAuthUI();
+  renderProfileCard();
+  renderGrid();
+}
+
+async function confirmDeleteAccount() {
+  const btn = document.getElementById('delete-confirm');
+  btn.disabled = true;
+  try {
+    const res = await authFetch('/api/users/account/delete', { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if (data.success) {
+      closeModal('delete-modal');
+      await doLogout();
+      toast(tr('drawer.deleted'));
+    } else {
+      toast(data.message || tr('drawer.deleteFail'));
+    }
+  } catch {
+    toast(tr('drawer.deleteFail'));
+  }
+  btn.disabled = false;
+}
+
+/* ─── Language + legal modals ─── */
+function buildLangModal() {
+  const list = document.getElementById('lang-list');
+  list.innerHTML = '';
+  SUPPORTED_LANGS.forEach(code => {
+    const btn = document.createElement('button');
+    btn.className = 'lang-option' + (code === currentLang ? ' active' : '');
+    btn.innerHTML = `<span>${escapeHtml(LANG_NAMES[code] || code)}</span>${code === currentLang ? '<span>✓</span>' : ''}`;
+    btn.addEventListener('click', () => {
+      currentLang = code;
+      localStorage.setItem(LANG_KEY, code);
+      document.getElementById('lang-select').value = code;
+      applyI18n();
+      buildLangModal();
+      closeModal('lang-modal');
+    });
+    list.appendChild(btn);
+  });
+}
+
+function openLegal(doc) {
+  const c = LEGAL_CONTENT[doc] || LEGAL_CONTENT.privacy;
+  document.getElementById('legal-title').textContent = tr(c.titleKey);
+  document.getElementById('legal-body').innerHTML = c.sections
+    .map(([h, b]) => `<h3>${escapeHtml(h)}</h3><p>${escapeHtml(b)}</p>`).join('');
+  openModal('legal-modal');
+}
+
 /* ═══ Wiring ═══ */
 function init() {
+  // Expose the sticky header's exact height so .search-sticky pins flush below it.
+  const topbar = document.querySelector('.topbar');
+  const setHeaderHeight = () =>
+    document.documentElement.style.setProperty('--header-h', `${topbar ? topbar.offsetHeight : 0}px`);
+  setHeaderHeight();
+  window.addEventListener('resize', setHeaderHeight);
+
   buildLangSelect();
   applyI18n();
 
@@ -256,6 +528,40 @@ function init() {
   document.getElementById('nav-all').addEventListener('click', e => setView('all', e.currentTarget));
   document.getElementById('nav-favorites').addEventListener('click', e => setView('favorites', e.currentTarget));
   document.getElementById('brand-home').addEventListener('click', () => setView('all', document.getElementById('nav-all')));
+
+  // Drawer: language modal, collapsible categories, legal docs, account.
+  document.getElementById('nav-language').addEventListener('click', () => {
+    buildLangModal();
+    closeDrawer();
+    openModal('lang-modal');
+  });
+  const catToggle = document.getElementById('categories-toggle');
+  const catBox = document.getElementById('drawer-categories');
+  catToggle.addEventListener('click', () => {
+    const collapsed = catBox.classList.toggle('collapsed');
+    catToggle.querySelector('.drawer-ico').textContent = collapsed ? '▸' : '▾';
+  });
+  document.getElementById('nav-privacy').addEventListener('click', () => { closeDrawer(); openLegal('privacy'); });
+  document.getElementById('nav-terms').addEventListener('click', () => { closeDrawer(); openLegal('terms'); });
+  document.getElementById('nav-delete').addEventListener('click', () => { closeDrawer(); openModal('delete-modal'); });
+  document.getElementById('nav-auth').addEventListener('click', () => {
+    closeDrawer();
+    if (user) doLogout(); else openModal('auth-modal');
+  });
+
+  // Modals: backdrop click + Esc close everything.
+  document.querySelectorAll('.modal-overlay').forEach(ov => {
+    ov.addEventListener('click', e => { if (e.target === ov) ov.style.display = 'none'; });
+  });
+
+  // Sign-in modal wiring.
+  document.getElementById('auth-submit').addEventListener('click', submitLogin);
+  document.getElementById('auth-guest').addEventListener('click', () => closeModal('auth-modal'));
+  document.getElementById('auth-password').addEventListener('keydown', e => { if (e.key === 'Enter') submitLogin(); });
+  document.getElementById('auth-email').addEventListener('keydown', e => { if (e.key === 'Enter') submitLogin(); });
+  document.getElementById('delete-cancel').addEventListener('click', () => closeModal('delete-modal'));
+  document.getElementById('delete-confirm').addEventListener('click', confirmDeleteAccount);
+  document.getElementById('legal-close').addEventListener('click', () => closeModal('legal-modal'));
 
   const input = document.getElementById('search-input');
   const clearBtn = document.getElementById('search-clear');
@@ -272,7 +578,34 @@ function init() {
   document.getElementById('player-back').addEventListener('click', closePlayer);
   document.getElementById('player-fs').addEventListener('click', toggleFullscreen);
   document.getElementById('player-fav').addEventListener('click', () => { if (activeGame) toggleFavorite(activeGame.id); });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && activeGame) closePlayer(); });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (activeGame) { closePlayer(); return; }
+    document.querySelectorAll('.modal-overlay').forEach(ov => { ov.style.display = 'none'; });
+  });
+
+  // Session bootstrap: restore a saved SmarTok session, validate the
+  // token against /api/users/me, then pull the account favorites.
+  (async () => {
+    if (!getToken()) { updateAuthUI(); renderProfileCard(); return; }
+    user = getCachedUser();
+    updateAuthUI();
+    renderProfileCard();
+    try {
+      const res = await authFetch('/api/users/me');
+      const data = await res.json().catch(() => ({}));
+      if (data.success && data.user) {
+        user = data.user;
+        saveSession(getToken(), data.user);
+      } else if (res.status === 401 || res.status === 403) {
+        await doLogout();
+        return;
+      }
+    } catch { /* offline — keep the cached profile */ }
+    updateAuthUI();
+    renderProfileCard();
+    if (user) { await mergeFavoritesOnLogin(); renderGrid(); }
+  })();
 
   loadCatalog().then(() => {
     buildCategories();

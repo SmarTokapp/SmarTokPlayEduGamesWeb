@@ -42,25 +42,92 @@
     </div>
   </header>
 
-  <!-- ═══ Drawer ═══ -->
+  <!-- ═══ Drawer (matches the Android app's side menu) ═══ -->
   <div id="drawer-overlay" class="drawer-overlay"></div>
   <nav id="drawer" class="drawer">
-    <div class="drawer-head">
-      <img src="/assets/logo.png" alt="" class="drawer-logo">
-      <span class="drawer-title" data-i18n="menu_title">Menu</span>
-      <button id="drawer-close" class="icon-btn" aria-label="Close">✕</button>
+    <div class="drawer-body">
+      <div class="drawer-head">
+        <img src="/assets/logo.png" alt="" class="drawer-logo">
+        <div class="drawer-brand">
+          <span class="drawer-brand-name">SmarTok Play</span>
+          <span class="drawer-brand-sub">EduGames</span>
+        </div>
+        <button id="drawer-close" class="icon-btn" aria-label="Close">✕</button>
+      </div>
+
+      <button class="drawer-item active" id="nav-all" data-view="all"><span class="drawer-ico">🏠</span><span data-i18n="drawer.home">Home</span></button>
+      <button class="drawer-item" id="nav-favorites" data-view="favorites"><span class="drawer-ico" style="color:var(--gold)">★</span><span data-i18n="drawer.favorites">Favorites</span></button>
+      <button class="drawer-item" id="nav-language"><span class="drawer-ico" style="color:var(--cyan)">🌐</span><span data-i18n="drawer.language">Language</span></button>
+
+      <button class="drawer-item drawer-section-toggle" id="categories-toggle"><span class="drawer-ico">▸</span><span data-i18n="menu_categories">Categories</span></button>
+      <div id="drawer-categories" class="drawer-categories"></div>
+
+      <div class="drawer-divider"></div>
+
+      <button class="drawer-item drawer-item-secondary" id="nav-privacy"><span class="drawer-ico">🛡️</span><span data-i18n="drawer.privacyPolicy">Privacy Policy</span></button>
+      <button class="drawer-item drawer-item-secondary" id="nav-terms"><span class="drawer-ico">📄</span><span data-i18n="drawer.terms">Terms of Service</span></button>
+      <button class="drawer-item drawer-item-danger" id="nav-delete" style="display:none"><span class="drawer-ico">🗑️</span><span data-i18n="drawer.deleteAccount">Delete Account</span></button>
+
+      <div class="drawer-divider"></div>
+
+      <button class="drawer-auth" id="nav-auth"><span class="drawer-ico" id="nav-auth-icon">→</span><span id="nav-auth-label" data-i18n="drawer.logIn">Log In</span></button>
     </div>
-    <button class="drawer-item active" id="nav-all" data-view="all">🎮 <span data-i18n="menu_all">All Games</span></button>
-    <button class="drawer-item" id="nav-favorites" data-view="favorites">★ <span data-i18n="menu_favorites">Favorites</span></button>
-    <div class="drawer-section" data-i18n="menu_categories">Categories</div>
-    <div id="drawer-categories" class="drawer-categories"></div>
+
+    <!-- Bottom profile card — guest card or signed-in user -->
+    <div class="profile-card" id="profile-card"></div>
   </nav>
 
-  <!-- ═══ Search ═══ -->
-  <div class="searchbar">
-    <span class="search-icon">🔍</span>
-    <input type="text" id="search-input" data-i18n-ph="search_ph" placeholder="Search games..." autocomplete="off">
-    <button id="search-clear" class="icon-btn search-clear" aria-label="Clear">✕</button>
+  <!-- ═══ Language modal ═══ -->
+  <div id="lang-modal" class="modal-overlay" style="display:none">
+    <div class="modal-sheet">
+      <div class="modal-title" data-i18n="lang.select">Select Language</div>
+      <div id="lang-list" class="lang-list"></div>
+    </div>
+  </div>
+
+  <!-- ═══ Sign-in modal ═══ -->
+  <div id="auth-modal" class="modal-overlay" style="display:none">
+    <div class="modal-sheet">
+      <div class="modal-title" data-i18n="auth.welcome">Welcome Back</div>
+      <div class="modal-sub" data-i18n="auth.loginSub">Sign in with your SmarTok account</div>
+      <input type="text" id="auth-email" class="modal-input" data-i18n-ph="auth.email" placeholder="Email" autocomplete="email">
+      <input type="password" id="auth-password" class="modal-input" data-i18n-ph="auth.password" placeholder="Password" autocomplete="current-password">
+      <div id="auth-error" class="modal-error" style="display:none"></div>
+      <button id="auth-submit" class="modal-btn" data-i18n="auth.login">Log In</button>
+      <button id="auth-guest" class="modal-link" data-i18n="auth.continueGuest">Continue as guest</button>
+    </div>
+  </div>
+
+  <!-- ═══ Delete account confirmation ═══ -->
+  <div id="delete-modal" class="modal-overlay" style="display:none">
+    <div class="modal-sheet">
+      <div class="modal-title" style="color:var(--pink)" data-i18n="drawer.deleteAccount">Delete Account</div>
+      <div class="modal-sub" data-i18n="drawer.deleteMsg">This CANNOT be undone. All your data will be deleted forever.</div>
+      <div class="modal-actions">
+        <button id="delete-cancel" class="modal-btn modal-btn-ghost" data-i18n="common.cancel">Cancel</button>
+        <button id="delete-confirm" class="modal-btn modal-btn-danger" data-i18n="drawer.deleteForever">Delete Forever</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Legal document modal ═══ -->
+  <div id="legal-modal" class="modal-overlay" style="display:none">
+    <div class="modal-sheet modal-sheet-tall">
+      <div class="modal-title" id="legal-title"></div>
+      <div id="legal-body" class="legal-body"></div>
+      <button id="legal-close" class="modal-btn" data-i18n="modal.close">Close</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" style="display:none"></div>
+
+  <!-- ═══ Search (sticky below header) ═══ -->
+  <div class="search-sticky">
+    <div class="searchbar">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="search-input" data-i18n-ph="search_ph" placeholder="Search games..." autocomplete="off">
+      <button id="search-clear" class="icon-btn search-clear" aria-label="Clear">✕</button>
+    </div>
   </div>
 
   <!-- ═══ Game grid ═══ -->
