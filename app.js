@@ -193,7 +193,7 @@ function syncPlayerFavButton() {
 /* ═══ Catalog ═══ */
 async function loadCatalog() {
   try {
-    const res = await fetch(`${GAMES_MANIFEST_URL}?t=${Date.now()}`);
+    const res = await fetch(`${GAMES_MANIFEST_URL}?t=${Date.now()}`, { cache: 'no-store' });
     const data = await res.json();
     if (Array.isArray(data) && data.length > 0) {
       games = shuffleArray(data.filter(g => g && g.id && g.title && g.url));
@@ -203,7 +203,7 @@ async function loadCatalog() {
     console.warn('Live manifest unreachable, using bundled copy:', e);
   }
   // Bundled fallback — an up-to-date copy of the same manifest.
-  const res = await fetch(`games.json?t=${Date.now()}`);
+  const res = await fetch(`games.json?t=${Date.now()}`, { cache: 'no-store' });
   games = shuffleArray((await res.json()).filter(g => g && g.id && g.title && g.url));
 }
 
