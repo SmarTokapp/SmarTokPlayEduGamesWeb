@@ -14,6 +14,7 @@ const SUPPORTED_LANGS = Object.keys(UI_DICT);
 let games = [];            // full catalog
 let favorites = loadFavorites();
 let currentView = 'all';   // 'all' | 'favorites' | 'category:<name>'
+let activeTab = 'all';     // bottom bar: 'all' | 'popular' | 'recent'
 let currentLang = detectLang();
 let activeGame = null;     // game open in the player overlay
 
@@ -80,6 +81,38 @@ function saveFavorites() {
 }
 
 /* ─── Session helpers (mirrors SmarTokPlayEduGames/src/api.ts) ─── */
+/* ═══ Recently played / local play stats ═══ */
+const RECENT_KEY = 'edugames-recent';
+const COUNTS_KEY = 'edugames-play-counts';
+const RECENT_LIMIT = 30;
+let recentIds = loadRecentIds();
+let playCounts = loadPlayCounts();
+
+function loadRecentIds() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+    return Array.isArray(arr) ? arr.filter(x => typeof x === 'string') : [];
+  } catch { return []; }
+}
+
+function loadPlayCounts() {
+  try {
+    const obj = JSON.parse(localStorage.getItem(COUNTS_KEY) || '{}');
+    return obj && typeof obj === 'object' ? obj : {};
+  } catch { return {}; }
+}
+
+// Records a game open: id moves to the front of the recent list (deduped,
+// capped at 30) and its play counter increments. Best-effort writes.
+function recordGamePlay(id) {
+  recentIds = [id, ...recentIds.filter(x => x !== id)].slice(0, RECENT_LIMIT);
+  playCounts[id] = (playCounts[id] || 0) + 1;
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(recentIds));
+    localStorage.setItem(COUNTS_KEY, JSON.stringify(playCounts));
+  } catch { /* quota — stats are non-critical */ }
+}
+
 function getToken() { return localStorage.getItem(TOKEN_KEY); }
 
 function saveSession(token, userData) {
@@ -230,7 +263,22 @@ function reshuffleGames() {
 
 function visibleGames() {
   const q = document.getElementById('search-input').value.trim().toLowerCase();
-  let list = games;
+  let list;
+  // Bottom tab picks the source list first.
+  if (activeTab === 'recent') {
+    const byId = new Map(games.map(g => [g.id, g]));
+    list = recentIds.map(id => byId.get(id)).filter(Boolean);
+  } else if (activeTab === 'popular') {
+    // Deterministic ranking: local play counts dominate, manifest order
+    // breaks ties — flagship titles always rank cleanly, never shuffled.
+    const order = new Map(games.map((g, i) => [g.id, i]));
+    list = [...games].sort((a, b) =>
+      (playCounts[b.id] || 0) - (playCounts[a.id] || 0) ||
+      (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+  } else {
+    list = games;
+  }
+  // Drawer view (favorites / category) then search narrow it further.
   if (currentView === 'favorites') list = list.filter(g => favorites.has(g.id));
   else if (currentView.startsWith('category:')) list = list.filter(g => g.category === currentView.slice(9));
   if (!q) return list;
@@ -252,7 +300,11 @@ function renderGrid() {
     const icon = empty.querySelector('.empty-icon');
     const title = empty.querySelector('.empty-title');
     const sub = empty.querySelector('.empty-sub');
-    if (currentView === 'favorites' && !document.getElementById('search-input').value.trim()) {
+    if (activeTab === 'recent' && !document.getElementById('search-input').value.trim()) {
+      icon.textContent = '🕒';
+      title.textContent = tr('tab_recent_empty');
+      sub.textContent = '';
+    } else if (currentView === 'favorites' && !document.getElementById('search-input').value.trim()) {
       icon.textContent = '☆';
       title.textContent = tr('fav_empty_title');
       sub.textContent = tr('fav_empty_sub');
@@ -305,9 +357,29 @@ function buildCategories() {
   });
 }
 
+// Bottom tab bar: All re-tap reshuffles; Popular/Recent swap the source
+// list but keep the active drawer view + search filter intact.
+function setTab(tab, btn) {
+  if (tab === 'all' && activeTab === 'all') {
+    if (games.length) games = shuffleArray(games);
+    renderGrid();
+    window.scrollTo({ top: 0 });
+    return;
+  }
+  activeTab = tab;
+  document.querySelectorAll('.btab').forEach(b => b.classList.toggle('active', b === btn));
+  renderGrid();
+  window.scrollTo({ top: 0 });
+}
+
 function setView(view, el) {
-  // Returning to Home/All Games always deals a fresh random order.
-  if (view === 'all' && games.length) games = shuffleArray(games);
+  // Returning to Home/All Games always deals a fresh random order and
+  // drops the bottom bar back to All.
+  if (view === 'all') {
+    activeTab = 'all';
+    document.querySelectorAll('.btab').forEach(b => b.classList.toggle('active', b.dataset.tab === 'all'));
+    if (games.length) games = shuffleArray(games);
+  }
   currentView = view;
   document.querySelectorAll('.drawer-item').forEach(b => b.classList.remove('active'));
   if (el) el.classList.add('active');
@@ -328,6 +400,7 @@ function closeDrawer() {
 /* ═══ Player overlay ═══ */
 function openPlayer(game) {
   activeGame = game;
+  recordGamePlay(game.id);
   const overlay = document.getElementById('player-overlay');
   document.getElementById('player-title').textContent = game.title;
   // Games serve English UI — pass lang=en so the hosted build never
@@ -724,7 +797,9 @@ function init() {
     renderGrid();
   });
 
-  document.getElementById('player-back').addEventListener('click', closePlayer);
+  document.querySelectorAll('.btab').forEach(b =>
+  b.addEventListener('click', () => setTab(b.dataset.tab, b)));
+document.getElementById('player-back').addEventListener('click', closePlayer);
   document.getElementById('player-fs').addEventListener('click', toggleFullscreen);
   document.getElementById('player-fav').addEventListener('click', () => { if (activeGame) toggleFavorite(activeGame.id); });
   document.addEventListener('keydown', e => {
