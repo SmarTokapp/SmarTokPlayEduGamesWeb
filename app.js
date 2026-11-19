@@ -422,7 +422,7 @@ function renderProfileCard() {
         <div class="profile-sub">${escapeHtml(tr('profile.syncSub'))}</div>
       </div>
       <button class="profile-signin" id="profile-signin-btn">${escapeHtml(tr('auth.signInSmarTok'))}</button>`;
-    document.getElementById('profile-signin-btn').addEventListener('click', () => { closeDrawer(); openModal('auth-modal'); });
+    document.getElementById('profile-signin-btn').addEventListener('click', () => { closeDrawer(); openAuthModal(); });
   }
 }
 
@@ -434,46 +434,165 @@ function updateAuthUI() {
   document.getElementById('nav-delete').style.display = loggedIn ? 'flex' : 'none';
 }
 
-/* ─── Sign-in modal ─── */
-async function submitLogin() {
+/* ─── Auth modal: sign in / create account / email verification ─── */
+// Mirrors the Android app's three modes: login | signup | verify (OTP).
+let authMode = 'login';
+let pendingEmail = ''; // email awaiting OTP verification
+// Same password policy as the Android AuthScreen.
+const PASSWORD_REGEX = /^(?![!?])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z0-9]).{7,40}$/;
+
+async function authPost(path, body) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return { ok: res.ok, data: await res.json().catch(() => ({})) };
+}
+
+function showAuthError(text) {
+  const el = document.getElementById('auth-error');
+  document.getElementById('auth-info').style.display = 'none';
+  el.textContent = text;
+  el.style.display = 'block';
+}
+function showAuthInfo(key) {
+  const el = document.getElementById('auth-info');
+  document.getElementById('auth-error').style.display = 'none';
+  el.textContent = tr(key);
+  el.style.display = 'block';
+}
+
+// Switches the modal between login / signup / verify and updates every
+// label, placeholder and section — always with a clean error/info state.
+function setAuthMode(mode) {
+  authMode = mode;
+  document.getElementById('auth-error').style.display = 'none';
+  document.getElementById('auth-info').style.display = 'none';
+  document.getElementById('auth-tab-login').classList.toggle('active', mode === 'login');
+  document.getElementById('auth-tab-signup').classList.toggle('active', mode === 'signup');
+  document.getElementById('auth-tabs').style.display = mode === 'verify' ? 'none' : 'flex';
+  document.getElementById('auth-fields').style.display = mode === 'verify' ? 'none' : 'block';
+  document.getElementById('auth-verify').style.display = mode === 'verify' ? 'block' : 'none';
+
+  const tKey = mode === 'verify' ? 'auth.verifyTitle' : mode === 'signup' ? 'auth.joinUs' : 'auth.welcome';
+  const sKey = mode === 'verify' ? 'auth.infoOtpSent' : mode === 'signup' ? 'auth.signupSub' : 'auth.loginSub';
+  const title = document.getElementById('auth-title');
+  const sub = document.getElementById('auth-sub');
+  title.dataset.i18n = tKey; title.textContent = tr(tKey);
+  sub.dataset.i18n = sKey; sub.textContent = tr(sKey);
+
+  document.getElementById('auth-name').style.display = mode === 'signup' ? 'block' : 'none';
+  const pw = document.getElementById('auth-password');
+  pw.dataset.i18nPh = mode === 'signup' ? 'auth.passwordHint' : 'auth.password';
+  pw.placeholder = tr(pw.dataset.i18nPh);
+  pw.setAttribute('autocomplete', mode === 'signup' ? 'new-password' : 'current-password');
+  const submit = document.getElementById('auth-submit');
+  submit.dataset.i18n = mode === 'signup' ? 'auth.signUp' : 'auth.login';
+  submit.textContent = tr(submit.dataset.i18n);
+}
+
+// Fresh state every open — same entry point used by drawer + profile card.
+function openAuthModal() {
+  setAuthMode('login');
+  ['auth-name', 'auth-email', 'auth-password', 'auth-otp'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  openModal('auth-modal');
+}
+
+async function onAuthSuccess(data) {
+  saveSession(data.token, data.user);
+  user = data.user;
+  closeModal('auth-modal');
+  updateAuthUI();
+  renderProfileCard();
+  toast(tr('drawer.signedInAs').replace('{name}', user.email || user.name || ''));
+  await mergeFavoritesOnLogin();
+  renderGrid();
+}
+
+async function submitAuth() {
   const email = document.getElementById('auth-email').value.trim().toLowerCase();
   const password = document.getElementById('auth-password').value;
-  const errEl = document.getElementById('auth-error');
   const btn = document.getElementById('auth-submit');
-  errEl.style.display = 'none';
-  if (!email || !password) {
-    errEl.textContent = tr('auth.errEmailPassword');
-    errEl.style.display = 'block';
-    return;
+  showAuthError('');
+  document.getElementById('auth-error').style.display = 'none';
+  document.getElementById('auth-info').style.display = 'none';
+
+  if (authMode === 'signup') {
+    const name = document.getElementById('auth-name').value.trim();
+    if (!name || !email || !password) return showAuthError(tr('auth.errAllFields'));
+    if (!PASSWORD_REGEX.test(password)) return showAuthError(tr('auth.errPassword'));
+  } else if (!email || !password) {
+    return showAuthError(tr('auth.errEmailPassword'));
   }
+
   btn.disabled = true;
   btn.textContent = tr('common.loading');
   try {
-    const res = await fetch(`${API_BASE}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (res.ok && data.token) {
-      saveSession(data.token, data.user);
-      user = data.user;
-      closeModal('auth-modal');
-      updateAuthUI();
-      renderProfileCard();
-      toast(tr('drawer.signedInAs').replace('{name}', user.email || user.name || ''));
-      await mergeFavoritesOnLogin();
-      renderGrid();
+    if (authMode === 'login') {
+      const { ok, data } = await authPost('/api/auth/login', { email, password });
+      if (ok && data.token) {
+        await onAuthSuccess(data);
+      } else if (data.requiresVerification) {
+        // Unverified account — the backend already sent a fresh OTP.
+        pendingEmail = data.email || email;
+        setAuthMode('verify');
+        showAuthInfo('auth.infoOtpSent');
+      } else {
+        showAuthError(data.error || tr('auth.errLogin'));
+      }
     } else {
-      errEl.textContent = data.requiresVerification ? tr('auth.errVerify') : (data.error || tr('auth.errLogin'));
-      errEl.style.display = 'block';
+      const name = document.getElementById('auth-name').value.trim();
+      const { ok, data } = await authPost('/api/auth/signup', { name, email, password });
+      if (ok) {
+        // Account created — backend emailed an OTP, move to verify mode.
+        pendingEmail = data.email || email;
+        setAuthMode('verify');
+        showAuthInfo('auth.infoAccountCreated');
+      } else {
+        showAuthError(data.error || tr('auth.errSignup'));
+      }
     }
   } catch {
-    errEl.textContent = tr('auth.errNetwork');
-    errEl.style.display = 'block';
+    showAuthError(tr('auth.errNetwork'));
   }
   btn.disabled = false;
-  btn.textContent = tr('auth.login');
+  btn.textContent = tr(authMode === 'signup' ? 'auth.signUp' : 'auth.login');
+}
+
+async function handleVerify() {
+  const otp = document.getElementById('auth-otp').value.trim();
+  const btn = document.getElementById('auth-verify-submit');
+  document.getElementById('auth-error').style.display = 'none';
+  document.getElementById('auth-info').style.display = 'none';
+  if (!otp) return showAuthError(tr('auth.errOtp'));
+  btn.disabled = true;
+  btn.textContent = tr('common.loading');
+  try {
+    const { ok, data } = await authPost('/api/auth/verify-email', { email: pendingEmail, otp });
+    if (ok && data.success && data.token) {
+      await onAuthSuccess(data);
+    } else {
+      showAuthError(data.error || tr('auth.errInvalidCode'));
+    }
+  } catch {
+    showAuthError(tr('auth.errNetwork'));
+  }
+  btn.disabled = false;
+  btn.textContent = tr('auth.verifySubmit');
+}
+
+async function handleResend() {
+  document.getElementById('auth-error').style.display = 'none';
+  try {
+    const { ok } = await authPost('/api/auth/resend-verification', { email: pendingEmail });
+    if (ok) showAuthInfo('auth.infoResent');
+    else showAuthError(tr('auth.errResend'));
+  } catch {
+    showAuthError(tr('auth.errNetwork'));
+  }
 }
 
 /* ─── Log out / delete account ─── */
@@ -570,7 +689,7 @@ function init() {
   document.getElementById('nav-delete').addEventListener('click', () => { closeDrawer(); openModal('delete-modal'); });
   document.getElementById('nav-auth').addEventListener('click', () => {
     closeDrawer();
-    if (user) doLogout(); else openModal('auth-modal');
+    if (user) doLogout(); else openAuthModal();
   });
 
   // Modals: backdrop click + Esc close everything.
@@ -579,10 +698,16 @@ function init() {
   });
 
   // Sign-in modal wiring.
-  document.getElementById('auth-submit').addEventListener('click', submitLogin);
+  document.getElementById('auth-submit').addEventListener('click', submitAuth);
+  document.getElementById('auth-tab-login').addEventListener('click', () => setAuthMode('login'));
+  document.getElementById('auth-tab-signup').addEventListener('click', () => setAuthMode('signup'));
+  document.getElementById('auth-verify-submit').addEventListener('click', handleVerify);
+  document.getElementById('auth-resend').addEventListener('click', handleResend);
+  document.getElementById('auth-back-login').addEventListener('click', () => setAuthMode('login'));
   document.getElementById('auth-guest').addEventListener('click', () => closeModal('auth-modal'));
-  document.getElementById('auth-password').addEventListener('keydown', e => { if (e.key === 'Enter') submitLogin(); });
-  document.getElementById('auth-email').addEventListener('keydown', e => { if (e.key === 'Enter') submitLogin(); });
+  ['auth-name', 'auth-email', 'auth-password'].forEach(id =>
+    document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') submitAuth(); }));
+  document.getElementById('auth-otp').addEventListener('keydown', e => { if (e.key === 'Enter') handleVerify(); });
   document.getElementById('delete-cancel').addEventListener('click', () => closeModal('delete-modal'));
   document.getElementById('delete-confirm').addEventListener('click', confirmDeleteAccount);
   document.getElementById('legal-close').addEventListener('click', () => closeModal('legal-modal'));

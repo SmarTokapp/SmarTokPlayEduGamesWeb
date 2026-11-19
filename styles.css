@@ -161,6 +161,22 @@ body { display: flex; flex-direction: column; min-height: 100vh; }
   background: none; border: none; color: var(--muted); font-size: 0.8rem;
   margin-top: 14px; cursor: pointer; font-family: inherit; text-decoration: underline;
 }
+/* Sign In / Create Account mode switcher — cyan underline on the active tab. */
+.auth-tabs {
+  display: flex; gap: 8px; margin-bottom: 18px;
+  background: var(--surface2); border-radius: 12px; padding: 4px;
+}
+.auth-tab {
+  flex: 1; background: none; border: none; border-radius: 9px;
+  color: var(--muted); font-size: 0.85rem; font-weight: 700;
+  padding: 9px 6px; cursor: pointer; font-family: inherit;
+  transition: background 0.15s, color 0.15s;
+}
+.auth-tab.active { background: var(--pink); color: #fff; }
+.modal-info {
+  color: var(--cyan); font-size: 0.8rem; text-align: center;
+  margin: -4px 0 12px; min-height: 1em;
+}
 .lang-list { overflow-y: auto; margin: 14px -6px 0; }
 .lang-list .lang-option {
   display: flex; align-items: center; justify-content: space-between;
