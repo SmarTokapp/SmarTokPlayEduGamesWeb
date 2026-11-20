@@ -20,6 +20,7 @@ let activeGame = null;     // game open in the player overlay
 
 /* ═══ Auth / session state (same contract as the Android app) ═══ */
 const API_BASE = 'https://smartok-backend.onrender.com';
+const GOOGLE_CLIENT_ID = '979936071970-0gpjnr1bm0hhja96gekkddcaddv66f9m.apps.googleusercontent.com';
 const TOKEN_KEY = 'userToken';
 const USER_KEY = 'userData';
 let user = null;                  // signed-in SmarTok user, or null (guest)
@@ -63,6 +64,7 @@ function buildLangSelect() {
     currentLang = sel.value;
     localStorage.setItem(LANG_KEY, currentLang);
     applyI18n();
+    renderGoogleButton();
   });
 }
 
@@ -585,6 +587,51 @@ async function onAuthSuccess(data) {
   renderGrid();
 }
 
+/* ─── Google Sign-In (same contract as SmarTokFrontend) ─── */
+// GSI returns a credential (ID token); POST /api/auth/google verifies it
+// against GOOGLE_CLIENT_ID and returns the standard {token, user} pair.
+let googleAuthReady = false;
+
+async function handleGoogleCredential(response) {
+  try {
+    const { ok, data } = await authPost('/api/auth/google', { idToken: response.credential });
+    if (ok && data.token) {
+      await onAuthSuccess(data);
+    } else {
+      showAuthError(data.error || tr('auth.errLogin'));
+    }
+  } catch {
+    showAuthError(tr('auth.errNetwork'));
+  }
+}
+
+// Renders Google's own button — `locale` keeps its label in the site
+// language; filled_black blends with the dark auth sheet.
+function renderGoogleButton() {
+  const el = document.getElementById('google-btn-wrap');
+  if (!googleAuthReady || !el) return;
+  el.innerHTML = '';
+  google.accounts.id.renderButton(el, {
+    theme: 'filled_black',
+    size: 'large',
+    width: 330,
+    text: 'continue_with',
+    locale: currentLang,
+  });
+}
+
+const gsiScript = document.createElement('script');
+gsiScript.src = 'https://accounts.google.com/gsi/client';
+gsiScript.async = true;
+gsiScript.defer = true;
+gsiScript.onload = () => {
+  if (typeof google === 'undefined' || !google.accounts) return;
+  google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogleCredential });
+  googleAuthReady = true;
+  renderGoogleButton();
+};
+document.head.appendChild(gsiScript);
+
 async function submitAuth() {
   const email = document.getElementById('auth-email').value.trim().toLowerCase();
   const password = document.getElementById('auth-password').value;
@@ -712,6 +759,7 @@ function buildLangModal() {
       document.getElementById('lang-select').value = code;
       applyI18n();
       buildLangModal();
+      renderGoogleButton();
       closeModal('lang-modal');
     });
     list.appendChild(btn);

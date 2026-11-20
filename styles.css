@@ -157,6 +157,12 @@ body { display: flex; flex-direction: column; min-height: 100vh; }
 .modal-btn-ghost { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
 .modal-btn-danger { background: var(--pink); }
 .modal-actions { display: flex; gap: 10px; }
+/* "or" divider between the SmarTok form and the Google button. */
+.auth-divider { display: flex; align-items: center; gap: 10px; margin: 14px 0 12px; }
+.auth-divider-line { flex: 1; height: 1px; background: var(--border); }
+.auth-divider-text { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px; }
+/* Google's own rendered button (filled_black matches the dark modal). */
+.google-btn-wrap { display: flex; justify-content: center; min-height: 44px; }
 .modal-link {
   background: none; border: none; color: var(--muted); font-size: 0.8rem;
   margin-top: 14px; cursor: pointer; font-family: inherit; text-decoration: underline;
