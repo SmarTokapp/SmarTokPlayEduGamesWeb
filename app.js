@@ -448,7 +448,7 @@ const LEGAL_CONTENT = {
       ['1. Information We Collect', 'SmarTok Play: EduGames collects your account information (name, email) when you register with a SmarTok account, plus your list of favorite games. Gameplay inside the in-app browser is hosted on games.smartok.app and does not collect personal data.'],
       ['2. How We Use Information', 'Your data is used only to authenticate your session, keep your favorites synchronized across devices, and operate the service. We do not sell personal information to third parties.'],
       ['3. Data Sharing', 'We do not share your personal data with third parties except the infrastructure providers needed to run the service (hosting, authentication). Legal requests are honored where required by law.'],
-      ['4. Data Retention & Deletion', 'You may delete your account at any time from the drawer menu ("Delete Account"). Deletion permanently removes your account, favorites, and personal data from our servers and cannot be undone.'],
+      ['4. Data Retention & Deletion', 'You may delete your game data at any time from the drawer menu ("Delete Game Data"). This permanently removes your EduGames favorites and progress, and cannot be undone. Your main SmarTok account is never affected — full account deletion is only available inside the main SmarTok app.'],
       ['5. Children', 'The games in this app are educational. Accounts require a verified email address. Parents may contact us to request deletion of a child\'s account data.'],
       ['6. Contact', 'For privacy questions, contact the SmarTok team through the official support channels listed on smartok.app.'],
     ],
@@ -730,10 +730,17 @@ async function confirmDeleteAccount() {
   const btn = document.getElementById('delete-confirm');
   btn.disabled = true;
   try {
-    const res = await authFetch('/api/users/account/delete', { method: 'DELETE' });
+    // SCOPED: /api/games/account-data purges only this user's EduGames data
+    // (server-side favorites). The main SmarTok account row is never touched —
+    // full account deletion lives exclusively in the main SmarTok app.
+    const res = await authFetch('/api/games/account-data', { method: 'DELETE' });
     const data = await res.json().catch(() => ({}));
     if (data.success) {
       closeModal('delete-modal');
+      // Purge local EduGames data so the guest profile starts clean.
+      localStorage.removeItem(FAV_KEY);
+      localStorage.removeItem(RECENT_KEY);
+      localStorage.removeItem(COUNTS_KEY);
       await doLogout();
       toast(tr('drawer.deleted'));
     } else {
